@@ -34,6 +34,7 @@ import os
 
 import cv2
 import numpy as np
+from sklearn.neighbors import KNeighborsClassifier
 import tensorflow as tf
 from scipy import misc
 
@@ -46,6 +47,26 @@ facenet_model_checkpoint = os.path.dirname(__file__) + "/../model_checkpoints/20
 classifier_model = os.path.dirname(__file__) + "/../model_checkpoints/my_classifier_1.pkl"
 debug = False
 
+def import_images(images_dir_str):
+    face_images = {}
+    for _, directories, _ in os.walk(images_dir_str):
+        for directory in directories:
+            print(directory)
+            face_images[directory] = []
+            for _, _, image_names in os.walk("{}/{}".format(images_dir_str, directory)):
+                for image_name in image_names:
+                    if image_name == '.DS_Store':
+                        continue
+                    print("{}/{}/{}".format(images_dir_str, directory, image_name))
+                    face_images[directory].append(
+                        cv2.imread(
+                            "{}/{}/{}".format(images_dir_str, directory, image_name)
+                        )
+                    )
+    return face_images
+
+images_dir_str = "../data/images"
+face_images = import_images(images_dir_str)
 
 class Face:
     def __init__(self):
@@ -62,6 +83,17 @@ class Recognition:
         self.encoder = Encoder()
         self.identifier = Identifier()
 
+        sample_faces = []
+        for name, images in face_images.items():
+            for image in images:
+                faces = self.detect.find_faces(image)
+                if len(faces) == 1:
+                    face = faces[0]
+                    face.embedding = self.encoder.generate_embedding(face)
+                    face.name = name
+                    sample_faces.append(face)
+        self.identifier.add_identities(sample_faces)
+
     def add_identity(self, image, person_name):
         faces = self.detect.find_faces(image)
 
@@ -69,6 +101,7 @@ class Recognition:
             face = faces[0]
             face.name = person_name
             face.embedding = self.encoder.generate_embedding(face)
+            self.identifier.add_identities([face])
             return faces
 
     def identify(self, image):
@@ -85,14 +118,35 @@ class Recognition:
 
 class Identifier:
     def __init__(self):
-        with open(classifier_model, 'rb') as infile:
-            self.model, self.class_names = pickle.load(infile)
+        self.model = KNeighborsClassifier(n_neighbors=1, n_jobs=4)
+        self.threshold = 0.7
+        self.data = {}
+        self.data_classes = []
 
     def identify(self, face):
         if face.embedding is not None:
-            predictions = self.model.predict_proba([face.embedding])
-            best_class_indices = np.argmax(predictions, axis=1)
-            return self.class_names[best_class_indices[0]]
+            nearestest_neighbour = self.model.kneighbors([face.embedding])
+            distance = nearestest_neighbour[0][0][0]
+            print('nearestest_neighbour: {}'.format(nearestest_neighbour))
+            if distance >= self.threshold:
+                return 'Unknown'
+
+            return self.data_classes[nearestest_neighbour[1][0][0]]
+
+    def add_identities(self, faces):
+        for face in faces:
+            if face.name not in self.data:
+                self.data[face.name] = []
+            self.data[face.name].append(face.embedding)
+        data = []
+        classes = []
+        for name, deep_features in self.data.items():
+            for deep_feature in deep_features:
+                data.append(deep_feature)
+                classes.append(name)
+        self.data_classes = classes
+        self.model.fit(data, classes)
+        return face
 
 
 class Encoder:
