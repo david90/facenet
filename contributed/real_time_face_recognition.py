@@ -26,6 +26,7 @@ Based on code from https://github.com/shanren7/real_time_face_recognition
 # SOFTWARE.
 import argparse
 import sys
+sys.path.append("../src/")
 import time
 
 import cv2
@@ -51,8 +52,8 @@ def add_overlays(frame, faces, frame_rate):
 
 
 def main(args):
-    frame_interval = 3  # Number of frames after which to run face detection
-    fps_display_interval = 5  # seconds
+    frame_interval = 10  # Number of frames after which to run face detection
+    fps_display_interval = 1  # seconds
     frame_rate = 0
     frame_count = 0
 
