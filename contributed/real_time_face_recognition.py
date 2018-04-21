@@ -33,6 +33,9 @@ import cv2
 
 import face
 
+from queue import Queue, Empty
+from threading import Thread, Lock
+
 
 def add_overlays(frame, faces, frame_rate):
     if faces is not None:
@@ -50,9 +53,24 @@ def add_overlays(frame, faces, frame_rate):
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
                 thickness=2, lineType=2)
 
+def detect_faces(recogniser, frames_s, faces_q, stack_lock, num_workers):
+    while True:
+        # with stack_lock:
+        stack_lock.acquire()
+        try:
+            frame = frames_s.pop()
+        except IndexError:
+            continue
+        finally:
+            stack_size = len(frames_s)
+            if stack_size > num_workers:
+                del frames_s[: stack_size - num_workers]
+            stack_lock.release()
+        faces = recogniser.identify(frame)
+        faces_q.put(faces, False)
+
 
 def main(args):
-    frame_interval = 10  # Number of frames after which to run face detection
     fps_display_interval = 1  # seconds
     frame_rate = 0
     frame_count = 0
@@ -65,23 +83,46 @@ def main(args):
         print("Debug enabled")
         face.debug = True
 
+    faces_q = Queue()
+    frames_s = []
+    stack_lock = Lock()
+
+    num_workers = 2
+
+    for _ in range(num_workers):
+        t = Thread(target=detect_faces, kwargs={
+            'recogniser': face_recognition,
+            'frames_s': frames_s,
+            'faces_q': faces_q,
+            'stack_lock': stack_lock,
+            'num_workers': num_workers,
+        })
+        t.start()
+
+    faces = None
+
     while True:
         # Capture frame-by-frame
         ret, frame = video_capture.read()
-
-        if (frame_count % frame_interval) == 0:
-            faces = face_recognition.identify(frame)
-
+        frames_s.append(frame)
+        try:
+            with faces_q.mutex:
+                faces = faces_q.queue.pop()
+                if (len(faces) > 1):
+                    del faces[: len(faces) - 1]
             # Check our current fps
+            frame_count += 1
             end_time = time.time()
             if (end_time - start_time) > fps_display_interval:
                 frame_rate = int(frame_count / (end_time - start_time))
                 start_time = time.time()
                 frame_count = 0
+        except (Empty, IndexError):
+            pass   
+
 
         add_overlays(frame, faces, frame_rate)
 
-        frame_count += 1
         cv2.imshow('Video', frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):

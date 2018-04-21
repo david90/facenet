@@ -154,12 +154,13 @@ class Encoder:
         self.sess = tf.Session()
         with self.sess.as_default():
             facenet.load_model(facenet_model_checkpoint)
+        self.graph = tf.get_default_graph()
 
     def generate_embedding(self, face):
         # Get input and output tensors
-        images_placeholder = tf.get_default_graph().get_tensor_by_name("input:0")
-        embeddings = tf.get_default_graph().get_tensor_by_name("embeddings:0")
-        phase_train_placeholder = tf.get_default_graph().get_tensor_by_name("phase_train:0")
+        images_placeholder = self.graph.get_tensor_by_name("input:0")
+        embeddings = self.graph.get_tensor_by_name("embeddings:0")
+        phase_train_placeholder = self.graph.get_tensor_by_name("phase_train:0")
 
         prewhiten_face = facenet.prewhiten(face.image)
 
